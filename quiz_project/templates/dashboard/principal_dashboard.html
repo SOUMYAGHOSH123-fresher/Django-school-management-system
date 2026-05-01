@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+{% extends 'base.html' %}
+
+{% block title %}
+Principal Dashboard
+{% endblock %}
+
+{% block content %}
+<div class="flex h-screen">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-gray-900 text-white p-5">
+        <h2 class="text-xl font-bold mb-6">Admin Panel</h2>
+
+        <ul id="menu" class="space-y-3"></ul>
+
+        <button onclick="logout()" class="mt-10 bg-red-500 px-3 py-2 rounded w-full">
+            Logout
+        </button>
+    </aside>
+
+
+    <!-- MAIN -->
+    <div class="flex-1 flex flex-col">
+
+        <!-- TOPBAR -->
+        <header class="bg-white shadow p-4 flex justify-between">
+            <h1 id="pageTitle" class="font-semibold">Dashboard</h1>
+            <span id="userRole" class="text-sm text-gray-500"></span>
+        </header>
+
+        <!-- CONTENT -->
+        <main id="content" class="p-6 overflow-y-auto">
+
+        </main>
+
+    </div>
+
+</div>
+
+<!-- ================  api related  ==================== -->
+<script>
+    const BASE_URL = "http://127.0.0.1:8000/api";
+    const AUTH_URL = "http://127.0.0.1:8000/auth";
+
+
+    // ================= TOKEN HELPERS =================
+    function getAccess() {
+        return localStorage.getItem("access");
+    }
+
+    function getRefresh() {
+        return localStorage.getItem("refresh");
+    }
+
+    function setTokens(access, refresh = null) {
+        localStorage.setItem("access", access);
+        if (refresh) localStorage.setItem("refresh", refresh);
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = "/dashboard/";
+    }
+
+    async function refreshToken() {
+        try {
+            apiFetch(`${AUTH_URL}/refresh-token/`, {
+                method: "POST"
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.access) {
+                        setTokens(data.access);
+                        return data.access;
+                    } else {
+                        logout();
+                    }
+                });
+
+        } catch (error) {
+            logout();
+        }
+    }
+
+    async function apiFetch(url, options = {}, retry = true) {
+        let access = getAccess();
+
+        options.headers = {
+            ...(options.headers || {}),
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + access
+        };
+
+        let response = await fetch(url, options);
+
+        // 🔥 If token expired
+        if (response.status === 401 && retry) {
+            const newAccess = await refreshToken();
+
+            if (!newAccess) return;
+
+            options.headers["Authorization"] = "Bearer " + newAccess;
+
+            // retry request with new token
+            return apiFetch(url, options, false);
+        }
+
+        return response;
+    }
+
+    const token = localStorage.getItem("access");
+
+    // ================= AUTH GUARD =================
+    if (!token) {
+        window.location.href = "/dashboard/";
+    }
+
+    // Decode JWT (simple)
+    function parseJwt(token) {
+        try {
+            return JSON.parse(atob(token.split('.')[1]));
+        } catch {
+            return null;
+        }
+    }
+
+    const user = parseJwt(token);
+    const role = user?.role;
+
+    if (!user || !user.role) {
+        localStorage.clear();
+        window.location.href = "/dashboard/";
+    }
+
+    document.getElementById("userRole").innerText = user.role;
+
+
+    // ========   SetPage ===========
+    function setPage(title, fn) {
+        document.getElementById("pageTitle").innerText = title;
+        fn();
+    }
+
+    // ================= API HELPER =================
+    function authHeaders() {
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        };
+    }
+
+
+
+</script>
+
+<!-- ===================  DASHBOARD  ==================== -->
+<script>
+    // ================= MENU =================
+    const menu = document.getElementById("menu");
+
+    function loadMenu() {
+        if (role === "principal") {
+            menu.innerHTML = `
+                <li><button onclick="setPage('Dashboard', loadDashboard)">Dashboard</button></li>
+                <li><button onclick="setPage('Teachers', loadTeachers)">Teachers</button></li>
+                <li><button onclick="setPage('Students', loadStudents)">Students</button></li>
+                <li><button onclick="setPage('Quizzes', loadQuizzes)">Quizzes</button></li>
+                <li><button onclick="setPage('Profile', loadProfilePage)">Profile</button></li>
+                <li>
+                    <button onclick="setPage('Bulk Students', loadBulkUpload)">
+                        Bulk Students
+                    </button>
+                </li>
+                <li>
+                    <button onclick="setPage('Bulk Teachers', loadBulkTeachers)">
+                        Bulk Teachers
+                    </button>
+                </li>
+            `;
+        }
+
+        if (role !== "principal") {
+            window.location.href = "/dashboard/" + role + "/";
+        }
+    }
+
+    loadMenu();
+
+    // ================= PRINCIPAL =================
+    let quizChart, classChart, attemptChart;
+    function loadDashboard() {
+        apiFetch(`${BASE_URL}/dashboard/principal/`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("content").innerHTML = `
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-white p-4 rounded shadow">Teachers: ${data.teachers}</div>
+                    <div class="bg-white p-4 rounded shadow">Students: ${data.students}</div>
+                    <div class="bg-white p-4 rounded shadow">Quizzes: ${data.quizzes}</div>
+                    <div class="bg-white p-4 rounded shadow">Active: ${data.active_quizzes}</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
+                    
+                    <div class="bg-white p-6 rounded-xl shadow">
+                        <h2 class="font-semibold mb-4">Quiz Status</h2>
+                        <canvas id="quizStatusChart"></canvas>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow">
+                        <h2 class="font-semibold mb-4">Students per Class</h2>
+                        <canvas id="classChart"></canvas>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow md:col-span-2">
+                        <h2 class="font-semibold mb-4">Quiz Attempts (Last 7 Days)</h2>
+                        <canvas id="attemptChart"></canvas>
+                    </div>
+
+                </div>
+                `;
+
+                // Destroy old charts if they exist
+                if (quizChart) quizChart.destroy();
+                if (classChart) classChart.destroy();
+                if (attemptChart) attemptChart.destroy();
+
+                // Pie Chart
+                quizChart = new Chart(document.getElementById('quizStatusChart'), {
+                    type: 'pie',
+                    data: {
+                        labels: ['Active', 'Inactive'],
+                        datasets: [{
+                            data: [data.active_quizzes || 0, data.inactive_quizzes || 0],
+                            backgroundColor: ['#22c55e', '#ef4444'],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: ctx => `${ctx.label}: ${ctx.raw}`
+                                }
+                            }
+                        },
+                        animation: {
+                            duration: 1000
+                        }
+                    }
+                });
+
+                // Bar Chart
+                classChart = new Chart(document.getElementById('classChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: data.class_labels || [],
+                        datasets: [{
+                            label: 'Students',
+                            data: data.class_counts || [],
+                            backgroundColor: '#3b82f6',
+                            borderRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        },
+                        animation: {
+                            duration: 800
+                        }
+                    }
+                });
+
+                // Line Chart
+                attemptChart = new Chart(document.getElementById('attemptChart'), {
+                    type: 'line',
+                    data: {
+                        labels: data.attempt_labels || [],
+                        datasets: [{
+                            label: 'Attempts',
+                            data: data.attempt_counts || [],
+                            borderColor: '#f97316',
+                            backgroundColor: 'rgba(249,115,22,0.2)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        animation: {
+                            duration: 1000
+                        }
+                    }
+                });
+
+            });
+    }
+
+    // ================= TEACHERS =================
+    function filterTeachers(subjectName) {
+        if (!subjectName) {
+            renderTeachers(window.allTeachers);
+            return;
+        }
+
+        const filtered = window.allTeachers.filter(t =>
+            t.subject && t.subject.subject === subjectName
+        );
+
+        renderTeachers(filtered);
+    }
+
+    function loadTeachers() {
+        apiFetch(`${BASE_URL}/dashboard/principal/teachers/`)
+            .then(res => res.json())
+            .then(data => {
+
+                // store globally
+                window.allTeachers = data.teachers;
+
+                // extract unique subjects
+                const subjects = [
+                    ...new Set(
+                        data.teachers
+                            .filter(t => t.subject)
+                            .map(t => t.subject.subject)
+                    )
+                ];
+
+                let options = `<option value="">All Subjects</option>`;
+                subjects.forEach(s => {
+                    options += `<option value="${s}">${s}</option>`;
+                });
+
+                let html = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Teachers</h2>
+
+                    <!-- FILTER -->
+                    <select onchange="filterTeachers(this.value)"
+                        class="border p-2 rounded">
+                        ${options}
+                    </select>
+                </div>
+
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+
+                    <!-- HEADER -->
+                    <div class="grid grid-cols-4 bg-gray-100 text-gray-700 font-semibold p-3">
+                        <span>Email</span>
+                        <span class="text-center">Class</span>
+                        <span class="text-center">Status</span>
+                        <span class="text-right pe-5">Actions</span>
+                    </div>
+
+                    <!-- BODY -->
+                    <div id="teacherList"></div>
+            `;
+
+                document.getElementById("content").innerHTML = html;
+
+                renderTeachers(window.allTeachers);
+            });
+    }
+
+    function renderTeachers(teachers) {
+        let html = "";
+
+        teachers.forEach(t => {
+            html += `
+            <div class="grid grid-cols-4 items-center p-3 border-t hover:bg-gray-50 transition">
+                <!-- Email -->
+                <span class="font-medium text-gray-800 truncate">
+                    ${t.email}
+                </span>
+
+                <!-- Subject -->
+                <span class="text-center text-gray-600">
+                    ${t.subject ? t.subject.subject : "No Subject"}
+                </span>
+
+                <!-- Status -->
+                <span class="text-center text-gray-600">
+                    ${t.is_approved ? "Approved" : "Not Approved"}
+                </span>
+
+                <!-- Actions -->
+                <div class="text-right space-x-3">
+                    ${t.is_approved ? `
+                        <button onclick="toggleTeacher(${t.id})"
+                            class="text-red-600 hover:text-red-800 font-medium">
+                            Reject
+                        </button>
+                    ` : `
+                        <button onclick="toggleTeacher(${t.id})"
+                            class="text-green-600 hover:text-green-800 font-medium">
+                            Approve
+                        </button>
+                    `}
+
+                    <button onclick="deleteTeacher(${t.id})" class="text-red-600 hover:text-red-800 font-medium">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `;
+
+        });
+
+        document.getElementById("teacherList").innerHTML = html;
+    }
+
+    function toggleTeacher(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/teachers/toggle-teacher/${id}/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("Status Update", "success");
+                    loadTeachers();
+                } else {
+                    showToast(data.error || "Something went wrong", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    function deleteTeacher(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/teachers/delete-teacher/${id}/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("User Deleted", "success");
+                    loadTeachers();
+                } else {
+                    showToast(data.error || "Something went wrong", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    // ================= STUDENTS =================
+    function filterStudentsByClass(className) {
+        if (!className) {
+            renderStudents(window.allStudents);
+            return;
+        }
+
+        const filtered = window.allStudents.filter(s =>
+            s.student_class && s.student_class.class_name === className
+        );
+
+        renderStudents(filtered);
+    }
+
+    function loadStudents() {
+        apiFetch(`${BASE_URL}/dashboard/principal/students/`)
+            .then(res => res.json())
+            .then(data => {
+
+                // Save globally for filtering
+                window.allStudents = data.students;
+
+                // Extract unique classes
+                const classes = [
+                    ...new Set(
+                        data.students
+                            .filter(s => s.student_class)
+                            .map(s => s.student_class.class_name)
+                    )
+                ];
+
+                let options = `<option value="">All Classes</option>`;
+                classes.forEach(c => {
+                    options += `<option value="${c}">${c}</option>`;
+                });
+
+                let html = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">Students</h2>
+
+                    <!-- FILTER DROPDOWN -->
+                    <select onchange="filterStudentsByClass(this.value)"
+                        class="border p-2 rounded">
+                        ${options}
+                    </select>
+                </div>
+
+                <div class="bg-white rounded-xl shadow overflow-hidden">
+
+                    <!-- HEADER -->
+                    <div class="grid grid-cols-4 bg-gray-100 text-gray-700 font-semibold p-3">
+                        <span>Email</span>
+                        <span class="text-center">Class</span>
+                        <span class="text-center">Status</span>
+                        <span class="text-right pe-5">Actions</span>
+                    </div>
+
+                    <!-- BODY -->
+                    <div id="studentList"></div>
+            `;
+
+                document.getElementById("content").innerHTML = html;
+
+                renderStudents(window.allStudents);
+            });
+    }
+
+    function renderStudents(students) {
+        let html = "";
+
+        students.forEach(s => {
+            html += `
+                <div class="grid grid-cols-4 items-center p-3 border-t hover:bg-gray-50 transition">
+
+                    <!-- Email -->
+                    <span class="font-medium text-gray-800 truncate">
+                        ${s.email}
+                    </span>
+
+                    <!-- Class -->
+                    <span class="text-center text-gray-600">
+                        ${s.student_class ? s.student_class.class_name : "No Class"}
+                    </span>
+
+                    <!-- Status -->
+                    <span class="text-center text-gray-600 capitalize">
+                        ${s.is_approved ? "Approved" : "Un Approved"}
+                    </span>
+
+                    <!-- Actions -->
+                    <div class="text-right space-x-3">
+                        ${s.is_approved ? `
+                            <button onclick="toogleStudent(${s.id})"
+                                class="text-red-600 hover:text-red-800 font-medium">
+                                Reject
+                            </button>
+                        ` : `
+                            <button onclick="toogleStudent(${s.id})"
+                                class="text-green-600 hover:text-green-800 font-medium">
+                                Approve
+                            </button>
+                        `}
+
+                        <button onclick="deleteStudent(${s.id})"
+                            class="text-red-600 hover:text-red-800 font-medium">
+                            Delete
+                        </button>
+                    </div>
+
+                </div>
+            `;
+        });
+
+        document.getElementById("studentList").innerHTML = html;
+    }
+
+    function toogleStudent(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/students/toggle-student/${id}/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("Status Update", "success");
+                    loadStudents();
+                } else {
+                    showToast(data.error || "Something went wrong", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    function deleteStudent(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/students/delete-student/${id}/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("User Deleted", "success");
+                    loadStudents();
+                } else {
+                    showToast(data.error || "Something went wrong", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    // ================= QUIZZES =================
+
+    function applyQuizFilters() {
+        const selectedClass = document.getElementById("filterClass").value;
+        const selectedType = document.getElementById("filterType").value;
+
+        let filtered = window.allQuizzes;
+
+        // Filter by class
+        if (selectedClass) {
+            filtered = filtered.filter(q =>
+                q.student_class &&
+                q.student_class.class_name === selectedClass
+            );
+        }
+
+        // Filter by type
+        if (selectedType) {
+            filtered = filtered.filter(q =>
+                q.quiz_type === selectedType
+            );
+        }
+
+        renderQuizzes(filtered);
+    }
+
+    function renderQuizzes(quizzes) {
+        let html = `
+        <div class="bg-white rounded-xl shadow overflow-hidden">
+
+            <!-- HEADER -->
+            <div class="grid grid-cols-4 bg-gray-100 text-gray-700 font-semibold p-3">
+                <span>Title</span>
+                <span class="text-center">Class</span>
+                <span class="text-center">Type</span>
+                <span class="text-right">Actions</span>
+            </div>
+    `;
+
+        quizzes.forEach(q => {
+            html += `
+                    <div class="grid grid-cols-5 items-center p-3 border-t hover:bg-gray-50 transition">
+
+                        <!-- Title -->
+                        <span class="font-medium text-gray-800 truncate">
+                            ${q.title}
+                        </span>
+
+                        <!-- Class -->
+                        <span class="text-center text-gray-600">
+                            ${q.student_class ? q.student_class.class_name : "No Class"}
+                        </span>
+
+                        <!-- Type -->
+                        <span class="text-center text-gray-600 capitalize">
+                            ${q.quiz_type || "N/A"}
+                        </span>
+
+                        <!-- Status -->
+                        <span class="text-center text-gray-600 capitalize">
+                            ${q.is_active ? "Active" : "Deactive"}   
+                        </span>
+
+                        <!-- Actions -->
+                        <div class="text-right space-x-3">
+                            ${q.is_active ? `
+                                <button onclick="toggleQuiz(${q.id})"
+                                    class="text-red-600 hover:text-red-800 font-medium">
+                                    Disable
+                                </button>
+                            ` : `
+                                <button onclick="toggleQuiz(${q.id})"
+                                    class="text-green-600 hover:text-green-800 font-medium">
+                                    Enable
+                                </button>
+                            `}
+
+                            <button onclick="deleteQuiz(${q.id})"
+                                class="text-red-600 hover:text-red-800 font-medium">
+                                Delete
+                            </button>
+                        </div>
+
+                    </div>
+                `;
+
+        });
+
+        html += `</div>`;
+
+        document.getElementById("quizTable").innerHTML = html;
+    }
+
+    function loadQuizzes() {
+        apiFetch(`${BASE_URL}/dashboard/principal/quizzes/`)
+            .then(res => res.json())
+            .then(data => {
+
+                window.allQuizzes = data.quizzes;
+
+                // 🔹 Extract unique classes
+                const classes = [
+                    ...new Set(
+                        data.quizzes
+                            .filter(q => q.student_class)
+                            .map(q => q.student_class.class_name)
+                    )
+                ];
+
+                // 🔹 Extract unique quiz types
+                const types = [
+                    ...new Set(
+                        data.quizzes.map(q => q.quiz_type)
+                    )
+                ];
+
+                let classOptions = `<option value="">All Classes</option>`;
+                classes.forEach(c => {
+                    classOptions += `<option value="${c}">${c}</option>`;
+                });
+
+                let typeOptions = `<option value="">All Types</option>`;
+                types.forEach(t => {
+                    typeOptions += `<option value="${t}">${t}</option>`;
+                });
+
+                let html = `
+                <div class="flex justify-between items-center mb-4">
+
+                    <h2 class="text-xl font-semibold">Quizzes</h2>
+
+                    <div class="flex gap-2">
+                        <!-- Class Filter -->
+                        <select onchange="applyQuizFilters()" id="filterClass"
+                            class="border p-2 rounded">
+                            ${classOptions}
+                        </select>
+
+                        <!-- Type Filter -->
+                        <select onchange="applyQuizFilters()" id="filterType"
+                            class="border p-2 rounded">
+                            ${typeOptions}
+                        </select>
+                    </div>
+                </div>
+
+                <div id="quizTable"></div>
+            `;
+
+                document.getElementById("content").innerHTML = html;
+
+                renderQuizzes(window.allQuizzes);
+            });
+    }
+
+    function toggleQuiz(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/toggle-quiz/${id}/`, { "method": "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("Quiz status updated", "success");
+                    loadQuizzes();
+                } else {
+                    showToast(data.error || "Toggle failed", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+
+    }
+
+    function deleteQuiz(id) {
+        apiFetch(`${BASE_URL}/dashboard/principal/delete-quiz/${id}/`, { 'method': "POST" })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast("Quiz Deleted", "success");
+                    loadQuizzes();
+                } else {
+                    showToast(data.error || "Toggle failed", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    // ================= INIT =================
+    if (role === "principal") {
+        loadDashboard();
+    }
+
+    // =================  PROFILE  ================
+    function loadProfilePage() {
+        document.getElementById("content").innerHTML = `
+        <div class="max-w-3xl mx-auto">
+
+            <!-- CARD -->
+            <div class="bg-white rounded-2xl shadow p-6">
+
+                <!-- HEADER -->
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-800">
+                        My Profile
+                    </h2>
+
+                    <span class="text-sm text-gray-500">
+                        Update your details
+                    </span>
+                </div>
+
+                <!-- FORM -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- Phone -->
+                    <div>
+                        <label class="text-sm text-gray-600">Phone</label>
+                        <input id="phone"
+                            placeholder="Enter phone number"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                    <!-- Address -->
+                    <div>
+                        <label class="text-sm text-gray-600">Address</label>
+                        <input id="address"
+                            placeholder="Enter address"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                </div>
+
+                <!-- Bio -->
+                <div class="mt-4">
+                    <label class="text-sm text-gray-600">Bio</label>
+                    <textarea id="bio"
+                        rows="4"
+                        placeholder="Tell something about yourself..."
+                        class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none"></textarea>
+                </div>
+
+                <!-- ACTION -->
+                <div class="flex justify-end mt-6">
+                    <button onclick="updateProfile()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg transition">
+                        Save Changes
+                    </button>
+                </div>
+
+                <!-- MESSAGE -->
+                <p id="profile_msg" class="mt-3 text-sm text-center"></p>
+
+            </div>
+
+        </div>
+    `;
+
+        loadProfile();
+    }
+
+    function loadProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`)
+            .then(res => res.json())
+            .then(data => {
+                phone.value = data.phone || "";
+                address.value = data.address || "";
+                bio.value = data.bio || "";
+            });
+    }
+
+    function updateProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`, {
+            method: "PUT",
+            body: JSON.stringify({
+                phone: phone.value,
+                address: address.value,
+                bio: bio.value
+            })
+        })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("profile_msg").innerHTML =
+                    "<span class='text-green-600'>Profile updated</span>";
+
+                if (data.success) {
+                    showToast("Profile updated successfully.", "success");
+                    loadProfilePage();
+                } else {
+                    showToast(data.error || "Toggle failed", "error");
+                }
+            })
+            .catch(() => showToast("Server error", "error"));
+    }
+
+    loadProfile();
+</script>
+
+<!-- // PRINCIPAL BULK STUDENT UPLOAD (EXCEL + SUBJECT MAPPING) -->
+<script>
+    // ================= BULK STUDENT UI =================
+    function loadBulkUpload() {
+        document.getElementById("content").innerHTML = `
+            <div class="bg-white p-6 rounded shadow max-w-4xl">
+                <h2 class="text-xl font-bold mb-4">Bulk Student Upload (Excel)</h2>
+
+                <input type="file" id="excelFile" accept=".xlsx,.xls"
+                    class="w-full border p-2 mb-4">
+
+                <div class="flex gap-2">
+                    <button onclick="handleExcelUpload()"
+                        class="bg-blue-600 text-white px-4 py-2 rounded">
+                        Upload
+                    </button>
+
+                    <button onclick="downloadExcelSample()"
+                        class="bg-gray-600 text-white px-4 py-2 rounded">
+                        Sample Excel
+                    </button>
+                </div>
+
+                <div id="preview" class="mt-6"></div>
+            </div>
+        `;
+    }
+
+    // ================= HANDLE FILE =================
+    function handleFileUpload() {
+        const file = document.getElementById("fileInput").files[0];
+
+        if (!file) {
+            showToast("Select a file first", "error");
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            try {
+                const data = JSON.parse(e.target.result);
+
+                if (!Array.isArray(data)) {
+                    showToast("JSON must be array", "error");
+                    return;
+                }
+
+                renderPreview(data);
+                sendBulkStudents(data);
+
+            } catch {
+                showToast("Invalid JSON file", 'error');
+            }
+        };
+
+        reader.readAsText(file);
+    }
+
+    function handleExcelUpload() {
+        const file = document.getElementById("excelFile").files[0];
+
+        if (!file) {
+            showToast("Select Excel file", "error");
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+            if (!jsonData.length) {
+                showToast("Empty file", "error");
+                return;
+            }
+
+            renderPreview(jsonData);
+            sendBulkStudents(jsonData);
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    // ================= PREVIEW =================
+    function renderPreview(data) {
+        let html = `
+            <h3 class="font-semibold mb-2">Preview (${data.length})</h3>
+            <table class="w-full bg-white border">
+                <thead class="bg-gray-200">
+                    <tr>
+                        <th class="p-2">Email</th>
+                        <th class="p-2">Name</th>
+                        <th class="p-2">Class</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        data.forEach(s => {
+            html += `
+        <tr class="border-t">
+            <td class="p-2">${s.email}</td>
+            <td class="p-2">${s.first_name} ${s.last_name}</td>
+            <td class="p-2">${s.class_name}</td>
+        </tr>
+    `;
+        });
+
+        html += `</tbody></table>`;
+
+        document.getElementById("preview").innerHTML = html;
+    }
+
+    // ================= API CALL =================
+    function sendBulkStudents(data) {
+        apiFetch(`${BASE_URL}/dashboard/principal/bulk-students/`, {
+            method: "POST",
+            body: JSON.stringify(data)
+        })
+            .then(res => res.json())
+            .then(res => {
+                showToast(
+                    `✅ Created: ${res.created?.length || 0}\n❌ Failed: ${res.failed?.length || 0}`,
+                    "success"
+                );
+            })
+            .catch(() => showToast("Upload failed", "error"));
+    }
+
+    // ================= SAMPLE =================
+    function downloadExcelSample() {
+        const ws = XLSX.utils.json_to_sheet([
+            {
+                email: "student@gmail.com",
+                password: "test123",
+                first_name: "John",
+                last_name: "Doe",
+                class_name: "Class 10"
+            }
+        ]);
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Students");
+
+        XLSX.writeFile(wb, "students_sample.xlsx");
+    }
+</script>
+
+<!-- // PRINCIPAL BULK TEACHER UPLOAD (EXCEL + SUBJECT MAPPING) -->
+<script>
+    // ================= LOAD UI =================
+    function loadBulkTeachers() {
+        document.getElementById("content").innerHTML = `
+    <div class="bg-white p-6 rounded shadow max-w-4xl">
+        <h2 class="text-xl font-bold mb-4">Bulk Teacher Upload (Excel)</h2>
+
+        <input type="file" id="teacherExcel" accept=".xlsx,.xls"
+            class="w-full border p-2 mb-4">
+
+        <div class="flex gap-2">
+            <button onclick="handleTeacherExcel()"
+                class="bg-blue-600 text-white px-4 py-2 rounded">
+                Upload
+            </button>
+
+            <button onclick="downloadTeacherSample()"
+                class="bg-gray-600 text-white px-4 py-2 rounded">
+                Sample Excel
+            </button>
+        </div>
+
+        <div id="teacherPreview" class="mt-6"></div>
+    </div>
+`;
+    }
+
+    // ================= HANDLE FILE =================
+    function handleTeacherExcel() {
+        const file = document.getElementById("teacherExcel").files[0];
+
+        if (!file) {
+            showToast("Select Excel file", "error");
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+            if (!jsonData.length) {
+                showToast("Empty file", "error");
+                return;
+            }
+
+            renderTeacherPreview(jsonData);
+            sendTeachers(jsonData);
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    // ================= PREVIEW =================
+    function renderTeacherPreview(data) {
+        let html = `
+    <h3 class="font-semibold mb-2">Preview (${data.length})</h3>
+    <table class="w-full bg-white border">
+        <thead class="bg-gray-200">
+            <tr>
+                <th class="p-2">Email</th>
+                <th class="p-2">Name</th>
+                <th class="p-2">Subject</th>
+            </tr>
+        </thead>
+        <tbody>
+`;
+
+        data.forEach(t => {
+            html += `
+        <tr class="border-t">
+            <td class="p-2">${t.email}</td>
+            <td class="p-2">${t.first_name} ${t.last_name}</td>
+            <td class="p-2">${t.subject}</td>
+        </tr>
+    `;
+        });
+
+        html += `</tbody></table>`;
+
+        document.getElementById("teacherPreview").innerHTML = html;
+    }
+
+    // ================= SEND =================
+    function sendTeachers(data) {
+        apiFetch(`${BASE_URL}/dashboard/principal/bulk-teachers/`, {
+            method: "POST",
+            body: JSON.stringify(data)
+        })
+            .then(res => res.json())
+            .then(res => {
+                showToast(`Created: ${res.created?.length || 0}\nFailed: ${res.failed?.length || 0}`);
+            })
+            .catch(() => showToast("Upload failed", "error"));
+    }
+
+    // ================= SAMPLE =================
+    function downloadTeacherSample() {
+        const ws = XLSX.utils.json_to_sheet([
+            {
+                email: "teacher@gmail.com",
+                password: "test123",
+                first_name: "John",
+                last_name: "Doe",
+                subject: "Math"
+            }
+        ]);
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Teachers");
+
+        XLSX.writeFile(wb, "teachers_sample.xlsx");
+    }
+
+</script>
+
+<!-- ------------  Add Toast Notification  ----------------- -->
+<script>
+    function showToast(message, type = "success") {
+        const container = document.getElementById("toast-container");
+
+        const colors = {
+            success: "bg-green-600",
+            error: "bg-red-600",
+            info: "bg-blue-600"
+        };
+
+        const toast = document.createElement("div");
+        toast.className = `
+            ${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg
+            transform transition-all duration-300 opacity-0 translate-x-10
+        `;
+        toast.innerText = message;
+
+        container.appendChild(toast);
+
+        // Animate in
+        setTimeout(() => {
+            toast.classList.remove("opacity-0", "translate-x-10");
+        }, 100);
+
+        // Remove after 3 sec
+        setTimeout(() => {
+            toast.classList.add("opacity-0", "translate-x-10");
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+</script>
+
+{% endblock %}

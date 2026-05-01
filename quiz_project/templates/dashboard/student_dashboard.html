@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+{% extends 'base.html' %}
+
+{% block title %}
+Student Dashboard
+{% endblock %}
+
+{% block content %}
+<div class="flex h-screen">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-blue-900 text-white p-5">
+        <h2 class="text-xl font-bold mb-6">Student Panel</h2>
+
+        <ul class="space-y-3">
+            <li><button onclick="setPage('Dashboard', loadDashboard)">Dashboard</button></li>
+            <li><button onclick="setPage('History', loadHistory)">Attempt History</button></li>
+            <li><button onclick="setPage('Attendance', loadAttendance)">Attendance</button></li>
+            <li><button onclick="setPage('Profile', loadProfilePage)">Profile</button></li>
+        </ul>
+
+        <button onclick="logout()" class="mt-10 bg-red-500 px-3 py-2 rounded w-full">
+            Logout
+        </button>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="flex-1 flex flex-col">
+
+        <header class="bg-white shadow p-4 flex justify-between">
+            <h1 id="pageTitle">Dashboard</h1>
+            <span>Student</span>
+        </header>
+
+        <main id="content" class="p-6 overflow-y-auto"></main>
+    </div>
+
+</div>
+
+<script>
+    const BASE_URL = "http://127.0.0.1:8000/api";
+    const AUTH_URL = "http://127.0.0.1:8000/auth";
+
+    // ================= AUTH =================
+    const token = localStorage.getItem("access");
+    if (!token) window.location.href = "/dashboard/";
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = "/dashboard/";
+    }
+
+    // ================= API =================
+    async function apiFetch(url, options = {}, retry = true) {
+        options.headers = {
+            ...(options.headers || {}),
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + localStorage.getItem("access")
+        };
+
+        let res = await fetch(url, options);
+
+        if (res.status === 401 && retry) {
+            const refresh = localStorage.getItem("refresh");
+
+            const r = await fetch(`${AUTH_URL}/refresh-token/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ refresh })
+            });
+
+            const data = await r.json();
+
+            if (data.access) {
+                localStorage.setItem("access", data.access);
+                return apiFetch(url, options, false);
+            } else {
+                logout();
+            }
+        }
+
+        return res;
+    }
+
+    // ================= COMMON =================
+    function setPage(title, fn) {
+        document.getElementById("pageTitle").innerText = title;
+        fn();
+    }
+
+    // ================= DASHBOARD =================
+    function loadDashboard() {
+        apiFetch(`${BASE_URL}/dashboard/student/`)
+            .then(res => res.json())
+            .then(data => {
+
+                let html = `
+                        <div class="grid grid-cols-3 gap-4 mb-6">
+                            <div class="bg-white p-4 rounded shadow">
+                                Total Attempts: ${data.stats.total_attempts || 0}
+                            </div>
+                            <div class="bg-white p-4 rounded shadow">
+                                Avg Score: ${data.stats.avg_score || 0}
+                            </div>
+                            <div class="bg-white p-4 rounded shadow">
+                                Available Quizzes: ${data.total_quizzes}
+                            </div>
+                        </div>
+
+                        <h2 class="text-lg mb-2">Invited Quizzes</h2>
+                    `;
+
+                data.invitations.forEach(inv => {
+                    html += `
+                        <div class="bg-white p-3 mb-2 rounded shadow flex justify-between">
+                            <span>Quiz ID: ${inv.quiz}</span>
+                            <button onclick="startQuiz('${inv.token}')" 
+                                class="bg-blue-600 text-white px-3 py-1 rounded">
+                                Start
+                            </button>
+                        </div>
+                    `;
+                });
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    function loadProfilePage() {
+        document.getElementById("content").innerHTML = `
+        <div class="max-w-3xl mx-auto">
+
+            <!-- CARD -->
+            <div class="bg-white rounded-2xl shadow p-6">
+
+                <!-- HEADER -->
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-800">
+                        My Profile
+                    </h2>
+
+                    <span class="text-sm text-gray-500">
+                        Update your details
+                    </span>
+                </div>
+
+                <!-- FORM -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- Phone -->
+                    <div>
+                        <label class="text-sm text-gray-600">Phone</label>
+                        <input id="phone"
+                            placeholder="Enter phone number"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                    <!-- Address -->
+                    <div>
+                        <label class="text-sm text-gray-600">Address</label>
+                        <input id="address"
+                            placeholder="Enter address"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                </div>
+
+                <!-- Bio -->
+                <div class="mt-4">
+                    <label class="text-sm text-gray-600">Bio</label>
+                    <textarea id="bio"
+                        rows="4"
+                        placeholder="Tell something about yourself..."
+                        class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none"></textarea>
+                </div>
+
+                <!-- ACTION -->
+                <div class="flex justify-end mt-6">
+                    <button onclick="updateProfile()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg transition">
+                        Save Changes
+                    </button>
+                </div>
+
+                <!-- MESSAGE -->
+                <p id="profile_msg" class="mt-3 text-sm text-center"></p>
+
+            </div>
+
+        </div>
+    `;
+
+        loadProfile();
+    }
+
+    function loadProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`)
+            .then(res => res.json())
+            .then(data => {
+                phone.value = data.phone || "";
+                address.value = data.address || "";
+                bio.value = data.bio || "";
+            });
+    }
+
+    function updateProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`, {
+            method: "PUT",
+            body: JSON.stringify({
+                phone: phone.value,
+                address: address.value,
+                bio: bio.value
+            })
+        })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("profile_msg").innerHTML =
+                    "<span class='text-green-600'>Profile updated</span>";
+            });
+    }
+
+    loadProfile();
+    // ================= START QUIZ =================
+    function startQuiz(token) {
+        apiFetch(`${BASE_URL}/quiz/invite/${token}/`)
+            .then(res => res.json())
+            .then(data => {
+
+                let html = `<h2 class="text-xl mb-4">${data.quiz.title}</h2>`;
+
+                data.quiz.questions.forEach(q => {
+                    html += `
+                        <div class="mb-4">
+                            <p>${q.question}</p>
+                            ${q.choices.map(c => `
+                                <label class="block">
+                                    <input type="radio" name="q${q.id}" value="${c.id}">
+                                    ${c.option}
+                                </label>
+                            `).join("")}
+                        </div>
+                    `;
+                });
+
+                html += `<button onclick="submitQuiz('${token}')" 
+                    class="bg-green-600 text-white px-4 py-2 rounded">
+                    Submit
+                </button>`;
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    // ================= SUBMIT QUIZ =================
+    function submitQuiz(token) {
+        let answers = [];
+
+        document.querySelectorAll("input[type=radio]:checked").forEach(input => {
+            const ques_id = input.name.replace("q", "");
+            answers.push({
+                ques_id: ques_id,
+                option_id: input.value
+            });
+        });
+
+        showToast("Submitting quiz...", "info");
+
+        apiFetch(`${BASE_URL}/quiz/submit/${token}/`, {
+            method: "POST",
+            body: JSON.stringify({ answers })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    showToast(data.error, "error");
+                    return;
+                }
+
+                if (!data.attempt_id) {
+                    showToast("Invalid response from server", "error");
+                    return;
+                }
+
+                showToast(`Score: ${data.score}`, 'success');
+
+                showResult(data.attempt_id);
+            });
+    }
+
+    // ================= RESULT =================
+    function showResult(id) {
+
+        apiFetch(`${BASE_URL}/dashboard/quiz/results/${id}/`)
+            .then(res => res.json())
+            .then(data => {
+
+                let html = `
+                        <h2 class="text-xl mb-4">${data.quiz}</h2>
+                        <p class="mb-4">Score: ${data.score}</p>
+                    `;
+
+                data.results.forEach(r => {
+                    html += `
+                        <div class="bg-white p-3 mb-2 rounded shadow">
+                            <p>${r.question || "No question"}</p>
+                            <p>Your: ${r.selected_answer || "No answer"}</p>
+                            <p>Correct: ${r.correct_answer || "N/A"}</p>
+                            <p class="${r.is_correct ? 'text-green-600' : 'text-red-600'}">
+                                ${r.is_correct ? 'Correct' : 'Wrong'}
+                            </p>
+                        </div>
+                    `;
+                });
+
+                html += `<button onclick="loadLeaderboard(${data.quiz_id})"
+                    class="bg-blue-600 text-white px-4 py-2 mt-4 rounded">
+                    View Leaderboard
+                </button>`;
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    // ================= LEADERBOARD =================
+    function loadLeaderboard(id) {
+
+        apiFetch(`${BASE_URL}/dashboard/quiz/leaderboard/${id}/`)
+            .then(res => res.json())
+            .then(data => {
+                let html = `<h2 class="text-xl mb-4">Leaderboard</h2>`;
+
+                data.leaderboard.forEach(l => {
+                    html += `
+                        <div class="bg-white p-3 mb-2 rounded shadow flex justify-between">
+                            <span>#${l.rank} ${l.student}</span>
+                            <span>${l.score} (${l.percentage}%)</span>
+                        </div>
+                        
+                    `;
+                });
+
+                html += `
+                <button onclick="loadHistory()"
+                    class="bg-gray-500 text-white px-4 py-2 mt-4 ml-2 rounded">
+                    Back
+                </button>
+                `
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    // ================= HISTORY =================
+    function loadHistory() {
+        apiFetch(`${BASE_URL}/dashboard/student/history/`)
+            .then(res => res.json())
+            .then(data => {
+                let html = `<h2 class="text-xl mb-4">Attempt History</h2>`;
+
+                data.histories.forEach(h => {
+                    html += `
+                <div class="bg-white p-4 mb-3 rounded-xl shadow flex justify-between items-center">
+                    
+                    <!-- Left Info -->
+                    <div>
+                        <p class="font-semibold text-gray-800">
+                            ${h.quiz.title || "Quiz"}
+                        </p>
+                        <p class="text-sm text-gray-500">
+                            Score: ${h.score}
+                        </p>
+                    </div>
+
+                    <!-- Action -->
+                    <button 
+                        onclick="viewQuizDashboard(${h.id})"
+                        class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                        View Dashboard
+                    </button>
+
+                </div>
+            `;
+                });
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    function viewQuizDashboard(id) {
+
+        apiFetch(`${BASE_URL}/dashboard/quiz/results/${id}/`)
+            .then(res => res.json())
+            .then(data => {
+                console.log("RESULT DATA:", data);
+
+                let html = `
+                <h2 class="text-xl mb-4">${data.quiz}</h2>
+
+                <div class="bg-white p-4 rounded shadow mb-4">
+                    <p><strong>Score:</strong> ${data.score}</p>
+                </div>
+
+                <h3 class="text-lg mb-2">Question Breakdown</h3>
+            `;
+
+                data.results.forEach(r => {
+                    html += `
+                    <div class="bg-white p-3 mb-2 rounded shadow">
+                        <p class="font-medium">${r.question}</p>
+                        <p>Your Answer: ${r.selected_answer}</p>
+                        <p>Correct Answer: ${r.correct_answer}</p>
+
+                        <p class="${r.is_correct ? 'text-green-600' : 'text-red-600'} font-semibold">
+                            ${r.is_correct ? '✔ Correct' : '✖ Wrong'}
+                        </p>
+                    </div>
+                `;
+                });
+
+                html += `
+                <button onclick="loadLeaderboard(${data.quiz_id})"
+                    class="bg-purple-600 text-white px-4 py-2 mt-4 rounded">
+                    View Leaderboard
+                </button>
+
+                <button onclick="loadHistory()"
+                    class="bg-gray-500 text-white px-4 py-2 mt-4 ml-2 rounded">
+                    Back
+                </button>
+            `;
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    // ================= ATTENDANCE =================
+    function loadAttendance() {
+        document.getElementById("content").innerHTML = "Loading...";
+
+        apiFetch(`${BASE_URL}/dashboard/attendance/checkout/`)
+            .then(res => {
+                if (res.status === 404) {
+                    document.getElementById("content").innerHTML = ` 
+                        <div class="bg-white p-4 rounded shadow mb-4" >
+                            No attendance marked today
+                        </div> 
+                            <button onclick="punchIn()" class="bg-green-600 text-white px-4 py-2 rounded">
+                                Punch In 
+                            </button>
+                        `;
+                    return null;
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (!data) return;
+
+                document.getElementById("content").innerHTML = `
+                        <div class="bg-white p-4 rounded shadow mb-4" >
+                            <p>Status: ${data.status}</p>
+                            <p>Punch In: ${data.punch_in || "-"}</p>
+                            <p>Punch Out: ${data.punch_out || "-"}</p>
+                            <p>Total Hours: ${data.total_hour || "-"}</p>
+                            <p>Status: ${data.status || "Not Marked"}</p>
+                        </div >
+
+                        <button onclick="punchIn()" class="bg-green-600 text-white px-4 py-2 rounded mr-2">
+                            Punch In
+                        </button>
+
+                        <button onclick="punchOut()" class="bg-red-600 text-white px-4 py-2 rounded">
+                            Punch Out
+                        </button>
+                    `;
+
+            });
+    }
+
+    function punchIn() {
+        apiFetch(`${BASE_URL}/dashboard/attendance/punch-in/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(() => loadAttendance());
+    }
+
+    function punchOut() {
+        apiFetch(`${BASE_URL}/dashboard/attendance/punch-out/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(() => loadAttendance());
+    }
+
+    // ================= INIT =================
+    loadDashboard();
+
+</script>
+
+<!-- ------------  Add Toast Notification  ----------------- -->
+<script>
+    function showToast(message, type = "success") {
+        const container = document.getElementById("toast-container");
+
+        const colors = {
+            success: "bg-green-600",
+            error: "bg-red-600",
+            info: "bg-blue-600"
+        };
+
+        const toast = document.createElement("div");
+        toast.className = `
+            ${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg
+            transform transition-all duration-300 opacity-0 translate-x-10
+        `;
+        toast.innerText = message;
+
+        container.appendChild(toast);
+
+        // Animate in
+        setTimeout(() => {
+            toast.classList.remove("opacity-0", "translate-x-10");
+        }, 100);
+
+        // Remove after 3 sec
+        setTimeout(() => {
+            toast.classList.add("opacity-0", "translate-x-10");
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+</script>
+
+{% endblock %}

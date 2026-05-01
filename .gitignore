@@ -1,0 +1,69 @@
+# ===============================
+# Python
+# ===============================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+
+# Virtual Environments (standard patterns)
+.venv/
+venv/
+env/
+ENV/
+apivenv/
+
+# ===============================
+# Django
+# ===============================
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+local_settings.py
+# Only ignore migration cache, KEEP the .py migration files
+**/migrations/__pycache__/
+
+
+# ===============================
+# Environment Variables (Secrets)
+# ===============================
+.env*
+
+# ===============================
+# Node / Frontend
+# ===============================
+node_modules/
+dist/
+build/
+.eslintcache
+
+# ===============================
+# Node / Frontend
+# ===============================
+
+node_modules/
+dist/
+build/
+
+# ===============================
+# VS Code / IDE / OS
+# ===============================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Testing
+# ===============================
+.coverage
+htmlcov/
+.pytest_cache/
+.cache/
+
+

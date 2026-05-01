@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Auth System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+</head>
+
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-4xl bg-white rounded-2xl shadow-lg flex overflow-hidden">
+
+        <!-- Left Side -->
+        <div class="w-1/2 bg-blue-600 text-white p-10 hidden md:flex flex-col justify-center">
+            <h1 class="text-3xl font-bold mb-4">School System</h1>
+            <p class="text-sm opacity-90">
+                Manage students, teachers, and quizzes efficiently.
+            </p>
+        </div>
+
+        <!-- Right Side -->
+        <div class="w-full md:w-1/2 p-8">
+
+            <!-- Tabs -->
+            <div class="flex mb-6 border-b">
+                <button onclick="showTab('login')" id="loginTab"
+                    class="flex-1 py-2 font-semibold border-b-2 border-blue-600">
+                    Login
+                </button>
+                <button onclick="showTab('register')" id="registerTab" class="flex-1 py-2 text-gray-500">
+                    Register
+                </button>
+            </div>
+
+            <!-- LOGIN -->
+            <div id="loginForm">
+                <input id="email" type="email" placeholder="Email" class="w-full p-3 border rounded mb-3">
+
+                <div class="relative">
+                    <input id="password" type="password" placeholder="Password"
+                        class="w-full p-3 border rounded mb-3 pr-10">
+                    <span onclick="togglePassword()" class="absolute right-3 top-3 cursor-pointer">👁️
+                    </span>
+                </div>
+                <button onclick="login()" class="w-full bg-blue-600 text-white py-3 rounded hover:bg-blue-700">
+                    Login
+                </button>
+
+                <!-- Add below login button -->
+
+                <button onclick="requestReset()" class="text-blue-600 text-sm mt-2">
+                    Forgot Password?
+                </button>
+
+                <p id="msg" class="mt-3 text-sm text-center"></p>
+
+                <p id="login_msg" class="mt-3 text-sm"></p>
+            </div>
+
+            <!-- REGISTER -->
+            <div id="registerForm" class="hidden">
+
+                <input id="first_name" placeholder="First Name" class="w-full p-3 border rounded-lg mb-3">
+
+                <input id="last_name" placeholder="Last Name" class="w-full p-3 border rounded-lg mb-3">
+
+                <input id="reg_email" type="email" placeholder="Email" class="w-full p-3 border rounded-lg mb-3">
+
+                <input id="reg_password" type="password" placeholder="Password"
+                    class="w-full p-3 border rounded-lg mb-3">
+
+                <select id="role" onchange="handleRoleChange()" class="w-full p-3 border rounded-lg mb-3">
+                    <option value="">Select Role</option>
+                    <option value="student">Student</option>
+                    <option value="teacher">Teacher</option>
+                    <option value="principal">Principal</option>
+                </select>
+
+                <!-- Dynamic Fields -->
+                <!-- <input id="student_class" placeholder="Student Class" class="w-full p-3 border rounded-lg mb-3 hidden"> -->
+                <select id="student_class" class="w-full p-3 border rounded-lg mb-3 hidden"></select>
+
+                <!-- <input id="subject" placeholder="Subject" class="w-full p-3 border rounded-lg mb-3 hidden"> -->
+                <select id="subject" class="w-full p-3 border rounded-lg mb-3 hidden"></select>
+
+                <input id="admin_code" type="password" placeholder="Admin Secret Code"
+                    class="w-full p-3 border rounded-lg mb-3 hidden">
+
+                <button onclick="register()" class="w-full bg-green-600 text-white py-3 rounded-lg hover:bg-green-700">
+                    Register
+                </button>
+
+                <p id="register_msg" class="mt-3 text-sm"></p>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        const BASE_URL = "http://127.0.0.1:8000/api";
+        const AUTH_URL = "http://127.0.0.1:8000/auth";
+
+        function togglePassword() {
+            const input = document.getElementById("password");
+            input.type = input.type === "password" ? "text" : "password";
+        }
+
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") {
+                login();
+            }
+        });
+
+        window.addEventListener("pageshow", function (event) {
+            if (event.persisted) {
+                localStorage.clear();
+                window.location.reload();
+            }
+        });
+
+        // ================= Tabs =================
+        function showTab(tab) {
+            document.getElementById("loginForm").classList.toggle("hidden", tab !== "login");
+            document.getElementById("registerForm").classList.toggle("hidden", tab !== "register");
+
+            document.getElementById("loginTab").classList.toggle("border-blue-600", tab === "login");
+            document.getElementById("registerTab").classList.toggle("border-blue-600", tab === "register");
+        }
+
+        // ================= Role Logic =================
+        function handleRoleChange() {
+            const role = document.getElementById("role").value;
+
+            document.getElementById("student_class").classList.add("hidden");
+            document.getElementById("subject").classList.add("hidden");
+            document.getElementById("admin_code").classList.add("hidden");
+
+            if (role === "student") {
+                document.getElementById("student_class").classList.remove("hidden");
+                loadClasses();
+            }
+            else if (role === "teacher") {
+                document.getElementById("subject").classList.remove("hidden");
+                loadSubjects();
+            }
+            else if (role === "principal") {
+                document.getElementById("admin_code").classList.remove("hidden");
+            }
+        }
+
+        // ================= Login =================
+        function parseJwt(token) {
+            try {
+                return JSON.parse(atob(token.split('.')[1]));
+            } catch {
+                return null;
+            }
+        }
+
+        function login() {
+            const msg = document.getElementById("msg");
+
+            fetch(`${AUTH_URL}/login-user/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                credentials: "include",  // 🔥 IMPORTANT for session
+                body: JSON.stringify({
+                    email: email.value,
+                    password: password.value
+                })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.tokens) {
+                        localStorage.setItem("access", data.tokens.access);
+                        localStorage.setItem("refresh", data.tokens.refresh);
+
+                        const user = parseJwt(data.tokens.access);
+
+                        if (!user) {
+                            showToast("Invalid Token or Expired Token", "error");
+                            return;
+                        }
+
+                        if (user.role === "principal") {
+                            window.location.href = "/dashboard/principal/";
+                        }
+                        else if (user.role === "teacher") {
+                            window.location.href = "/dashboard/teacher/";
+                        }
+                        else if (user.role === "student") {
+                            window.location.href = "/dashboard/student/";
+                        } else {
+                            window.location.href = data.redirect;
+                        }
+
+                        msg.innerHTML = "<span class='text-green-600'>Login successful</span>";
+
+
+                    } else {
+                        msg.innerHTML = `<span class='text-red-600'>${data.error}</span>`;
+                        showToast(data.error || "Login Failed", "error");
+                    }
+                })
+                .catch(() => {
+                    msg.innerHTML = "<span class='text-red-600'>Server error</span>";
+                    showToast("Server Error", "error");
+                });
+        }
+
+        // ================= Register =================
+        function register() {
+            const msg = document.getElementById("register_msg");
+
+            const role = document.getElementById("role").value;
+
+            let payload = {
+                email: reg_email.value,
+                password: reg_password.value,
+                first_name: first_name.value,
+                last_name: last_name.value,
+                role: role
+            };
+
+            if (role === "student") {
+                payload.student_class = student_class.value;
+            }
+            else if (role === "teacher") {
+                payload.subject = subject.value;
+            }
+            else if (role === "principal") {
+                payload.admin_code = admin_code.value;
+            }
+
+            fetch(`${AUTH_URL}/register-user/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            })
+                .then(async res => {
+                    const data = await res.json();
+
+                    if (res.status === 201) {
+                        msg.innerHTML = "<span class='text-green-600'>Account created successfully</span>";
+                        showToast("Account created successfully", "success");
+
+                        setTimeout(() => {
+                            showTab("login");   // switch tab
+                        }, 1000);
+                    }
+                    else {
+                        let errorMsg = "Registration failed";
+
+                        if (data) {
+                            errorMsg = Object.values(data).flat().join("\n");
+                        }
+
+                        showToast(errorMsg, "error");
+                    }
+                });
+        }
+
+        // =================  Forget Password  =============
+        function requestReset() {
+            const email = document.getElementById("email").value;
+
+            if (!email) {
+                showToast("Please enter your email first", "info");
+                return;
+            }
+
+            fetch(`${AUTH_URL}/password-reset/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email })
+            })
+                .then(async res => {
+                    const data = await res.json();
+
+                    if (!res.ok) {
+                        console.error("Error:", data);
+                        showToast(data.error || "Something went wrong", "error");
+                        return;
+                    }
+
+                    console.log("Success:", data);
+                    showToast(data.message) || "Password reset Successfully.", "success";
+                })
+                .catch(() => showToast("Something went wrong", "error"));
+
+        }
+
+        // ================= Error Handler =================
+        function showErrors(data) {
+            let errors = "";
+
+            for (let key in data) {
+                errors += `${key}: ${data[key]} <br>`;
+            }
+
+            document.getElementById("register_msg").innerHTML =
+                `<span class='text-red-600'>${errors}</span>`;
+        }
+
+        function loadSubjects() {
+            fetch(`${BASE_URL}/subjects/`)
+                .then(res => res.json())
+                .then(data => {
+                    console.log("Subjects API:", data);
+
+                    const select = document.getElementById("subject");
+                    select.innerHTML = "<option value=''>Select Subject</option>";
+
+                    data.forEach(sub => {
+                        select.innerHTML += `<option value="${sub.id}">${sub.subject}</option>`;
+                    });
+                });
+        }
+
+        function loadClasses() {
+            fetch(`${BASE_URL}/classes/`)
+                .then(res => res.json())
+                .then(data => {
+                    const select = document.getElementById("student_class");
+                    select.innerHTML = "<option value=''>Select Class</option>";
+
+                    data.forEach(cls => {
+                        select.innerHTML += `<option value="${cls.id}">${cls.class_name}</option>`;
+                    });
+                });
+        }
+
+    </script>
+
+    <!-- ================  show Taost Notification   -============== -->
+    <script>
+        function showToast(message, type = "success") {
+            const toast = document.createElement("div");
+
+            toast.className = `
+                fixed top-5 right-5 px-4 py-2 rounded shadow text-white z-50
+                ${type === "error" ? "bg-red-500" : "bg-green-500"}
+            `;
+
+            toast.innerText = message;
+
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+    </script>
+
+</body>
+
+</html>
