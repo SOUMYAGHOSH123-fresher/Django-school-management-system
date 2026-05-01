@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>QuizMaster</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gradient-to-br from-blue-600 to-purple-700 text-white">
+
+    <!-- Navbar -->
+    <nav class="flex justify-between items-center p-6 bg-white text-black shadow">
+        <h1 class="text-xl font-bold text-blue-600">QuizMaster</h1>
+
+        <div class="space-x-6">
+            <a href="{% url 'login_user' %}" class="hover:text-blue-600">Login</a>
+            <a href="{% url 'login_user' %}" class="hover:text-blue-600">Register</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="flex flex-col items-center justify-center text-center mt-32 px-4">
+
+        <h1 class="text-5xl font-bold mb-6">
+            Welcome to QuizMaster
+        </h1>
+
+        <p class="text-lg mb-8 max-w-xl">
+            Create quizzes, test knowledge, and track performance easily.
+            Built for students and teachers.
+        </p>
+
+        <div class="space-x-4">
+            <a href="{% url 'login_user' %}"
+                class="bg-white text-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-200">
+                Login
+            </a>
+
+            <a href="{% url 'login_user' %}"
+                class="bg-yellow-400 text-black px-6 py-3 rounded-lg font-semibold hover:bg-yellow-300">
+                Get Started
+            </a>
+        </div>
+
+    </div>
+
+</body>
+
+</html>

@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+{% extends 'base.html' %}
+
+{% block title %}
+Teacher Dashboard
+{% endblock %}
+
+{% block content %}
+<div class="flex h-screen">
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-gray-900 text-white p-5">
+        <h2 class="text-xl font-bold mb-6">Teacher Panel</h2>
+
+        <ul class="space-y-3">
+            <li><button onclick="setPage('Dashboard', loadDashboard)">Dashboard</button></li>
+            <li><button onclick="setPage('Manage Quizzes', loadQuizTable)">Manage Quizzes</button></li>
+            <li><button onclick="setPage('Create Quiz', showCreateQuiz)">Create Quiz</button></li>
+            <li><button onclick="setPage('Send Quiz', loadSendQuiz)">Send Quiz</button></li>
+            <li><button onclick="setPage('Attendance', loadAttendance)">Attendance</button></li>
+            <li><button onclick="setPage('Profile', loadProfilePage)">Profile</button></li>
+            <li>
+                <button onclick="setPage('Bulk Students', loadBulkUpload)">
+                    Bulk Students
+                </button>
+            </li>
+        </ul>
+
+        <button onclick="logout()" class="mt-10 bg-red-500 px-3 py-2 rounded w-full">
+            Logout
+        </button>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="flex-1 flex flex-col">
+
+        <!-- TOPBAR -->
+        <header class="bg-white shadow p-4 flex justify-between">
+            <h1 id="pageTitle" class="font-semibold">Dashboard</h1>
+            <span>Teacher</span>
+        </header>
+
+        <!-- CONTENT -->
+        <main id="content" class="p-6 overflow-y-auto"></main>
+
+    </div>
+</div>
+
+<script>
+    const BASE_URL = "http://127.0.0.1:8000/api";
+    const AUTH_URL = "http://127.0.0.1:8000/auth";
+
+    // ================= AUTH GUARD =================
+    const token = localStorage.getItem("access");
+
+    if (!token) {
+        window.location.href = "/dashboard/";
+    }
+
+    // ================= TOKEN SYSTEM =================
+    function getAccess() {
+        return localStorage.getItem("access");
+    }
+
+    function getRefresh() {
+        return localStorage.getItem("refresh");
+    }
+
+    function setTokens(access, refresh = null) {
+        localStorage.setItem("access", access);
+        if (refresh) localStorage.setItem("refresh", refresh);
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = "/dashboard/";
+    }
+
+    async function refreshToken() {
+        try {
+            apiFetch(`${AUTH_URL}/refresh-token/`, {
+                method: "POST"
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.access) {
+                        setTokens(data.access);
+                        return data.access;
+                    } else {
+                        logout();
+                    }
+                });
+
+        } catch (error) {
+            logout();
+        }
+    }
+
+    // ================= API FETCH =================
+    async function apiFetch(url, options = {}, retry = true) {
+        options.headers = {
+            ...(options.headers || {}),
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + getAccess()
+        };
+
+        let res = await fetch(url, options);
+
+        if (res.status === 401 && retry) {
+            await refreshToken();
+            return apiFetch(url, options, false);
+        }
+
+        return res;
+    }
+
+    // ================= COMMON =================
+    function setPage(title, fn) {
+        document.getElementById("pageTitle").innerText = title;
+        fn();
+    }
+
+    // ================= DASHBOARD =================
+    function loadDashboard() {
+        document.getElementById("content").innerHTML = "Loading...";
+
+        apiFetch(`${BASE_URL}/dashboard/teacher/`)
+            .then(res => {
+                if (!res.ok) throw new Error("API failed");
+                return res.json();
+            })
+            .then(data => {
+                console.log("Dashboard Data:", data);
+                let html = `
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-white p-4 rounded shadow">
+                                Total Attempts: ${data.total_attempts}
+                            </div>
+                        </div>
+
+                        <h2 class="text-xl mt-6 mb-2">Your Quizzes</h2>
+                    `;
+
+                data.quizzes.forEach(q => {
+                    html += `
+                    <div class="bg-white p-3 mb-2 rounded shadow flex justify-between">
+                        <span>
+                            ${q.title} 
+                            (Class: ${q.student_class ? q.student_class.class_name : "No Class"})
+                        </span>
+                    </div>
+                `;
+                });
+
+                document.getElementById("content").innerHTML = html;
+            })
+            .catch(err => {
+                console.error(err);
+                document.getElementById("content").innerHTML =
+                    "<p class='text-red-600'>Failed to load dashboard</p>";
+            });
+    }
+
+    // ====================  PROFILE  =================
+    function loadProfilePage() {
+        document.getElementById("content").innerHTML = `
+        <div class="max-w-3xl mx-auto">
+
+            <!-- CARD -->
+            <div class="bg-white rounded-2xl shadow p-6">
+
+                <!-- HEADER -->
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-800">
+                        My Profile
+                    </h2>
+
+                    <span class="text-sm text-gray-500">
+                        Update your details
+                    </span>
+                </div>
+
+                <!-- FORM -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    <!-- Phone -->
+                    <div>
+                        <label class="text-sm text-gray-600">Phone</label>
+                        <input id="phone"
+                            placeholder="Enter phone number"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                    <!-- Address -->
+                    <div>
+                        <label class="text-sm text-gray-600">Address</label>
+                        <input id="address"
+                            placeholder="Enter address"
+                            class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+
+                </div>
+
+                <!-- Bio -->
+                <div class="mt-4">
+                    <label class="text-sm text-gray-600">Bio</label>
+                    <textarea id="bio"
+                        rows="4"
+                        placeholder="Tell something about yourself..."
+                        class="w-full mt-1 p-2 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none"></textarea>
+                </div>
+
+                <!-- ACTION -->
+                <div class="flex justify-end mt-6">
+                    <button onclick="updateProfile()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg transition">
+                        Save Changes
+                    </button>
+                </div>
+
+                <!-- MESSAGE -->
+                <p id="profile_msg" class="mt-3 text-sm text-center"></p>
+
+            </div>
+
+        </div>
+    `;
+
+        loadProfile();
+    }
+
+    function loadProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`)
+            .then(res => res.json())
+            .then(data => {
+                phone.value = data.phone || "";
+                address.value = data.address || "";
+                bio.value = data.bio || "";
+            });
+    }
+
+    function updateProfile() {
+        apiFetch(`${AUTH_URL}/dashboard/profile/`, {
+            method: "PUT",
+            body: JSON.stringify({
+                phone: phone.value,
+                address: address.value,
+                bio: bio.value
+            })
+        })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("profile_msg").innerHTML =
+                    "<span class='text-green-600'>Profile updated</span>";
+
+                if (data.error) {
+                    showtoast(Object.values(data.error).join(", "), "error");
+                    return;
+                }
+
+                // Success toast
+                showToast("Profile Updated successfully", "success");
+            });
+    }
+
+    loadProfile();
+</script>
+
+<!-- =================  CREATE QUIZ   ======================= -->
+<script>
+    function loadClasses() {
+        apiFetch(`${BASE_URL}/classes/`)
+            .then(res => res.json())
+            .then(data => {
+
+                let options = `<option value="">Select Class</option>`;
+
+                data.forEach(c => {
+                    options += `<option value="${c.id}">${c.class_name}</option>`;
+                });
+
+                document.getElementById("student_class").innerHTML = options;
+            })
+            .catch(() => {
+                showtoast("Failed to load classes", "error");
+            });
+    }
+
+    function showCreateQuiz() {
+        document.getElementById("content").innerHTML = `
+            <div class="bg-white p-6 rounded-xl shadow max-w-3xl mx-auto">
+
+                <h2 class="text-2xl font-bold mb-4">Create Quiz</h2>
+
+                <div class="grid grid-cols-2 gap-4">
+
+                    <input id="title" placeholder="Quiz Title"
+                        class="p-2 border rounded">
+
+                    <select id="quiz_type" class="p-2 border rounded">
+                        <option value="mid">Mid Term</option>
+                        <option value="quarter">Quarterly</option>
+                        <option value="practice">Practice</option>
+                        <option value="final">Final</option>
+                    </select>
+
+                    <select id="student_class"
+                        class="p-2 border rounded col-span-2">
+                        <option value="">Select Class</option>
+                    </select>
+
+                    <input id="duration" type='number' placeholder="Duration (minutes)"
+                        class="p-2 border rounded col-span-2">
+
+                </div>
+
+                <div class="flex justify-between items-center mt-4">
+                    <button onclick="addQuestion()"
+                        class="bg-blue-600 text-white px-3 py-1 rounded">
+                        + Add Question
+                    </button>
+
+                    <input type="file" id="jsonFile"
+                        class="border p-1">
+                </div>
+
+                <div id="questionsContainer" class="mt-4"></div>
+                <p class="text-sm text-gray-500 mt-2">
+                    Either upload JSON OR create manually
+                </p>
+
+                <button onclick="createQuiz()"
+                    class="bg-green-600 text-white px-4 py-2 rounded mt-6 w-full">
+                    Create Quiz
+                </button>
+
+            </div>
+            `;
+
+        loadClasses();
+
+    }
+
+    let questionIndex = 0;
+
+    function addQuestion(q = {}) {
+        const container = document.getElementById("questionsContainer");
+
+        const index = container.children.length + 1;
+
+        container.insertAdjacentHTML("beforeend", `
+         <div class="question-block bg-gray-50 border rounded-xl p-4 mb-4 relative">
+
+            <!-- DELETE BUTTON -->
+            <button onclick="this.parentElement.remove(); reindexQuestions()"
+                class="absolute top-2 right-2 text-red-500 text-lg">✖</button>
+
+            <h3 class="font-semibold mb-3">Question ${index}</h3>
+
+            <!-- QUESTION -->
+            <label class="block text-sm font-medium mb-1">Question</label>
+            <input value="${q.question || ''}" 
+                class="w-full border p-2 rounded mb-2 q-question"
+                placeholder="Enter question">
+
+            <!-- MARKS -->
+            <label class="block text-sm font-medium mb-1">Marks</label>
+            <input type="number" value="${q.mark || ''}" 
+                class="w-full border p-2 rounded mb-3 q-mark"
+                placeholder="Enter marks">
+
+            <!-- OPTIONS -->
+            <label class="block text-sm font-medium mb-1">Options</label>
+            <div class="grid grid-cols-2 gap-2 mb-3">
+                ${[0, 1, 2, 3].map(i => `
+                    <input 
+                        value="${q.choices?.[i]?.option || ''}" 
+                        placeholder="Option ${i + 1}" 
+                        class="border p-2 rounded opt">
+                `).join("")}
+            </div>
+
+            <!-- CORRECT -->
+            <label class="block text-sm font-medium mb-1">Correct Option (1-4)</label>
+            <input type="number" min="1" max="4"
+                value="${getCorrectIndex(q)}"
+                class="w-full border p-2 rounded correct"
+                placeholder="Enter correct option number">
+        </div>
+    `);
+    }
+
+    function getCorrectIndex(q) {
+        if (!q.choices) return "";
+
+        const index = q.choices.findIndex(c => c.is_true);
+        return index >= 0 ? index + 1 : "";
+    }
+
+    function reindexQuestions() {
+        const blocks = document.querySelectorAll("#questionsContainer > div");
+
+        blocks.forEach((block, i) => {
+            block.querySelector("h3").innerText = `Question ${i + 1}`;
+        });
+    }
+
+    function createQuiz() {
+        const file = document.getElementById("jsonFile").files[0];
+
+        // ===== FILE MODE =====
+        if (file) {
+            const reader = new FileReader();
+
+            reader.onload = function (e) {
+                try {
+                    const questionsData = JSON.parse(e.target.result);
+
+                    if (!Array.isArray(questionsData)) {
+                        showToast("Invalid JSON format", "error");
+                        return;
+                    }
+
+                    sendQuizPayload(questionsData);
+                } catch {
+                    showToast("Invalid JSON file", "error");
+                }
+            };
+
+            reader.readAsText(file);
+            return;
+        }
+
+        // ===== MANUAL MODE =====
+        const blocks = document.querySelectorAll(".question-block");
+
+        if (!blocks.length) {
+            showToast("Add at least one question", "error");
+            return;
+        }
+
+        let questions = [];
+
+        for (let block of blocks) {
+            const question = block.querySelector(".q-question").value.trim();
+            const mark = parseInt(block.querySelector(".q-mark").value);
+            const correctIndex = parseInt(block.querySelector(".correct").value);
+            const options = block.querySelectorAll(".opt");
+
+            if (!question) {
+                showToast("Question cannot be empty", "error");
+                return;
+            }
+
+            if (!mark || mark <= 0) {
+                showToast("Marks must be valid", "error");
+                return;
+            }
+
+            if (!correctIndex || correctIndex < 1 || correctIndex > 4) {
+                showToast("Correct option must be between 1-4", "error");
+                return;
+            }
+
+            let choices = [];
+
+            options.forEach((opt, i) => {
+                for (let opt of options) {
+                    if (!opt.value.trim()) {
+                        showToast("All options must be filled", "error");
+                        return;
+                    }
+                }
+
+                choices.push({
+                    option: opt.value.trim(),
+                    is_true: (i + 1 === correctIndex)
+                });
+            });
+
+            questions.push({
+                question,
+                mark,
+                choices
+            });
+        }
+
+        sendQuizPayload(questions);
+    }
+
+    function sendQuizPayload(questionsData) {
+        const btn = document.querySelector("button[onclick='createQuiz()']");
+        btn.disabled = true;
+
+        const payload = {
+            title: title.value,
+            quiz_type: quiz_type.value,
+            student_class_key: Number(student_class.value),
+            duration: Number(duration.value),
+            questions: questionsData
+        };
+
+        apiFetch(`${BASE_URL}/dashboard/teacher/create-quiz/`, {
+            method: "POST",
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                btn.disabled = false;
+
+                if (data.error) {
+                    showToast(Object.values(data.error).join(", "), "error");
+                    return;
+                }
+
+                showToast("Quiz created successfully", "success");
+
+                setTimeout(() => {
+                    setPage("Send Quiz", loadSendQuiz);
+                }, 1000);
+            })
+            .catch(() => {
+                btn.disabled = false;
+                showToast("Something went wrong", "error");
+            });
+    }
+
+    // ================= SEND QUIZ =================
+    function loadSendQuiz() {
+        apiFetch(`${BASE_URL}/dashboard/teacher/send-quiz/`)
+            .then(res => res.json())
+            .then(data => {
+                let quizOptions = data.quizzes.map(q =>
+                    `<option value="${q.id}" data-class="${q.student_class?.id}">
+                        ${q.title}
+                    </option>`
+                ).join("");
+
+                document.getElementById("content").innerHTML = `
+                        <select id="quiz_id" onchange="filterStudents()" class="w-full p-2 border mb-2">
+                            <option value="">Select Quiz</option>
+                            ${quizOptions}
+                        </select>
+
+                        <div id="studentList"></div>
+
+                        <button onclick="sendQuiz()" class="bg-blue-600 text-white px-4 py-2 rounded mt-3">
+                            Send Quiz
+                        </button>
+                    `;
+
+                window.allStudents = data.students;
+            });
+
+    }
+
+    function filterStudents() {
+        const selected = document.getElementById("quiz_id");
+
+        if (!selected.value) {
+            document.getElementById("studentList").innerHTML = "";
+            return;
+        }
+
+        const selectedClass = Number(
+            selected.options[selected.selectedIndex].dataset.class
+        );
+
+        const filtered = window.allStudents.filter(s => {
+            const studentClassId = typeof s.student_class === "object"
+                ? s.student_class?.id   // ✅ object case
+                : s.student_class;      // ✅ number case
+
+            return Number(studentClassId) === selectedClass && s.is_approved;
+        });
+
+        console.log("Selected Class:", selectedClass);
+        console.log("Students:", window.allStudents);
+
+        let html = filtered.map(s => `
+        <label class="block">
+            <input type="checkbox" value="${s.email}" class="studentCheck">
+            ${s.email}
+        </label>
+    `).join("");
+
+        document.getElementById("studentList").innerHTML =
+            html || "<p class='text-gray-500'>No students found</p>";
+    }
+
+    function sendQuiz() {
+        const emails = Array.from(document.querySelectorAll(".studentCheck:checked"))
+            .map(el => el.value);
+
+        const payload = {
+            quiz_id: quiz_id.value,
+            emails: emails
+        };
+
+        apiFetch(`${BASE_URL}/dashboard/teacher/send-quiz/`, {
+            method: "POST",
+            body: JSON.stringify(payload)
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    showToast(Object.values(data.error).join(", "), "error");
+                    return;
+                }
+
+                // Success toast
+                showToast(`Sending ${emails.length} emails...`, "success");
+            });
+
+    }
+
+    // ================= ATTENDANCE =================
+    function loadAttendance() {
+        document.getElementById("content").innerHTML = "Loading...";
+
+        apiFetch(`${BASE_URL}/dashboard/attendance/checkout/`)
+            .then(res => {
+                if (res.status === 404) {
+                    document.getElementById("content").innerHTML = ` 
+                        <div class="bg-white p-4 rounded shadow mb-4" >
+                            No attendance marked today
+                        </div> 
+                            <button onclick="punchIn()" class="bg-green-600 text-white px-4 py-2 rounded">
+                                Punch In 
+                            </button>
+                        `;
+                    return null;
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (!data) return;
+
+                document.getElementById("content").innerHTML = `
+                        <div class="bg-white p-4 rounded shadow mb-4" >
+                            <p>Status: ${data.status}</p>
+                            <p>Punch In: ${data.punch_in || "-"}</p>
+                            <p>Punch Out: ${data.punch_out || "-"}</p>
+                            <p>Total Hours: ${data.total_hour || "-"}</p>
+                            <p>Status: ${data.status || "Not Marked"}</p>
+                        </div >
+
+                        <button onclick="punchIn()" class="bg-green-600 text-white px-4 py-2 rounded mr-2">
+                            Punch In
+                        </button>
+
+                        <button onclick="punchOut()" class="bg-red-600 text-white px-4 py-2 rounded">
+                            Punch Out
+                        </button>
+                    `;
+
+            });
+    }
+
+    function punchIn() {
+        apiFetch(`${BASE_URL}/dashboard/attendance/punch-in/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(() => loadAttendance());
+    }
+
+    function punchOut() {
+        apiFetch(`${BASE_URL}/dashboard/attendance/punch-out/`, {
+            method: "POST"
+        })
+            .then(res => res.json())
+            .then(() => loadAttendance());
+    }
+
+    // ================= INIT =================
+    loadDashboard();
+
+</script>
+
+<!-- // ================= MANAGE QUIZ TABLE ================= -->
+<script>
+    function loadQuizTable() {
+        apiFetch(`${BASE_URL}/dashboard/teacher/create-quiz/`)
+            .then(res => res.json())
+            .then(data => {
+
+                let html = `
+        <div class="bg-white p-6 rounded-2xl shadow">
+
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-semibold text-gray-800">Manage Quizzes</h2>
+
+                <button onclick="showCreateQuiz()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow">
+                    + Create Quiz
+                </button>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left border rounded-lg overflow-hidden">
+
+                    <thead class="bg-gray-100 text-gray-600 uppercase text-xs">
+                        <tr>
+                            <th class="p-3">Title</th>
+                            <th class="p-3">Class</th>
+                            <th class="p-3">Duration</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3 text-center">Actions</th>
+                        </tr>
+                    </thead>
+
+                    <tbody class="divide-y">
+    `;
+
+                if (!data.data.length) {
+                    html += `
+                <tr>
+                    <td colspan="5" class="text-center p-6 text-gray-500">
+                        No quizzes found
+                    </td>
+                </tr>
+                `;
+                }
+
+                data.data.forEach(q => {
+                    html += `
+                <tr class="hover:bg-gray-50 transition">
+
+                    <td class="p-3 font-medium text-gray-800">
+                        ${q.title}
+                    </td>
+
+                    <td class="p-3 text-gray-600">
+                        ${q.student_class?.class_name || "N/A"}
+                    </td>
+
+                    <td class="p-3 text-gray-600">
+                        ${q.duration} min
+                    </td>
+
+                    <td class="p-3">
+                        <span class="px-2 py-1 text-xs rounded-full 
+                            ${q.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
+                            ${q.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                    </td>
+
+                    <td class="p-3 flex justify-center gap-2">
+
+                        <button onclick="editQuiz(${q.id})"
+                            class="bg-yellow-400 hover:bg-yellow-500 text-white px-3 py-1 rounded-lg text-xs">
+                            ✏ Edit
+                        </button>
+
+                        <button onclick="deleteQuiz(${q.id})"
+                            class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-xs">
+                            🗑 Delete
+                        </button>
+
+                    </td>
+
+                </tr>
+                `;
+                });
+
+                html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        `;
+
+                document.getElementById("content").innerHTML = html;
+            });
+    }
+
+    // ================= DELETE =================
+    function deleteQuiz(id) {
+        if (!confirm("Delete this quiz?")) return;
+
+        apiFetch(`${BASE_URL}/dashboard/teacher/quiz/${id}/`, {
+            method: "DELETE"
+        })
+            .then(res => res.json())
+            .then(() => {
+                // Success toast
+                showToast("Quiz deleted successfully", "success");
+
+                loadQuizTable();
+            });
+    }
+
+    // ================= EDIT =================
+    function editQuiz(id) {
+        apiFetch(`${BASE_URL}/dashboard/teacher/quiz/${id}/`)
+            .then(res => res.json())
+            .then(quiz => {
+
+                document.getElementById("content").innerHTML = `
+                <div class="bg-white p-6 rounded-xl shadow max-w-3xl mx-auto">
+
+                    <h2 class="text-2xl font-bold mb-4">Edit Quiz</h2>
+
+                    <label>Title</label>
+                    <input id="title" value="${quiz.title}" class="w-full border p-2 mb-2">
+
+                    <label>Duration</label>
+                    <input id="duration" value="${quiz.duration}" class="w-full border p-2 mb-2">
+
+                    <div id="questionsContainer"></div>
+
+                    <button onclick="addQuestion()" 
+                        class="bg-blue-600 text-white px-3 py-1 rounded mt-2">
+                        + Add Question
+                    </button>
+
+                    <button onclick="updateQuiz(${quiz.id})"
+                        class="bg-green-600 text-white px-4 py-2 rounded mt-4 w-full">
+                        Update Quiz
+                    </button>
+                </div>
+            `;
+
+                document.getElementById("questionsContainer").innerHTML = "";
+
+                quiz.questions.forEach(q => {
+                    addQuestion(q);
+                });
+            });
+    }
+
+    function renderEditQuizUI(quiz) {
+        document.getElementById("content").innerHTML = `
+        <div class="bg-white p-6 rounded-xl shadow max-w-4xl mx-auto">
+
+            <h2 class="text-2xl font-bold mb-4">Edit Quiz</h2>
+
+            <input id="title" value="${quiz.title}" class="border p-2 w-full mb-2">
+
+            <input id="duration" value="${quiz.duration}" class="border p-2 w-full mb-2">
+
+            <div id="questionsContainer"></div>
+
+            <button onclick="addQuestion()" class="bg-blue-500 text-white px-3 py-1 mt-3 rounded">
+                + Add Question
+            </button>
+
+            <button onclick="updateQuiz(${quiz.id})"
+                class="bg-green-600 text-white px-4 py-2 mt-4 w-full rounded">
+                Update Quiz
+            </button>
+        </div>
+        `;
+
+        quiz.questions.forEach(q => addEditQuestion(q));
+    }
+
+    function addEditQuestion(q = null) {
+        const container = document.getElementById("questionsContainer");
+
+        const choices = q?.choices || [{}, {}, {}, {}];
+
+        container.insertAdjacentHTML("beforeend", `
+        <div class="question-block border p-4 mb-3 rounded" data-id="${q?.id || ''}">
+
+            <input class="q-question border p-2 w-full mb-2"
+                value="${q?.question || ''}">
+
+            <input type="number" class="q-mark border p-2 w-full mb-2"
+                value="${q?.mark || ''}">
+
+            ${choices.map((c, i) => `
+                <input class="opt border p-2 w-full mb-1"
+                    data-id="${c.id || ''}"
+                    value="${c.option || ''}">
+            `).join("")}
+
+            <input type="number" class="correct border p-2 w-full mt-2"
+                value="${choices.findIndex(c => c.is_true) + 1 || ''}">
+        </div>
+    `);
+    }
+
+    function loadEditClasses(selectedId) {
+        apiFetch(`${BASE_URL}/classes/`)
+            .then(res => res.json())
+            .then(data => {
+                let options = "";
+
+                data.forEach(c => {
+                    options += `
+                    <option value="${c.id}" 
+                        ${c.id == selectedId ? "selected" : ""}>
+                        ${c.class_name}
+                    </option>
+                `;
+                });
+
+                document.getElementById("edit_class").innerHTML = options;
+            });
+    }
+
+    // ================= UPDATE =================
+    function updateQuiz(id) {
+        const blocks = document.querySelectorAll(".question-block");
+
+        let questions = [];
+
+        blocks.forEach(block => {
+            const quesId = block.dataset.id;
+
+            const question = block.querySelector(".q-question").value;
+            const mark = parseInt(block.querySelector(".q-mark").value);
+            const correctIndex = parseInt(block.querySelector(".correct").value);
+
+            const options = block.querySelectorAll(".opt");
+
+            let choices = [];
+
+            options.forEach((opt, i) => {
+                choices.push({
+                    id: opt.dataset.id || undefined,
+                    option: opt.value,
+                    is_true: (i + 1 === correctIndex)
+                });
+            });
+
+            questions.push({
+                id: quesId || undefined,
+                question,
+                mark,
+                choices
+            });
+        });
+
+        apiFetch(`${BASE_URL}/dashboard/teacher/quiz/${id}/`, {
+            method: "PUT",
+            body: JSON.stringify({
+                title: title.value,
+                duration: duration.value,
+                questions
+            })
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    showToast(JSON.stringify(data.error), "error");
+                    return;
+                }
+                showToast("Quiz updated successfully", "success");
+
+                loadQuizTable();
+            })
+            .catch(() => {
+                showToast("Update failed", "error");
+            });
+    }
+
+</script>
+
+<!-- // ================= BULK STUDENT UI ================= -->
+<script>
+    function loadBulkUpload() {
+        document.getElementById("content").innerHTML = `
+                <div class="bg-white p-6 rounded shadow max-w-4xl">
+                    <h2 class="text-xl font-bold mb-4">Bulk Student Upload (Excel)</h2>
+
+                    <input type="file" id="excelFile" accept=".xlsx,.xls"
+                        class="w-full border p-2 mb-4">
+
+                    <button onclick="handleExcelUpload()"
+                        class="bg-blue-600 text-white px-4 py-2 rounded">
+                        Upload Excel
+                    </button>
+
+                    <div id="preview" class="mt-6"></div>
+                </div>
+            `;
+    }
+
+    // ================= HANDLE FILE =================
+    function handleFileUpload() {
+        const file = document.getElementById("fileInput").files[0];
+
+        if (!file) {
+            showtoast("Select a file first", "error");
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            try {
+                const data = JSON.parse(e.target.result);
+
+                if (!Array.isArray(data)) {
+                    showtoast("JSON must be array", "error");
+                    return;
+                }
+
+                renderPreview(data);
+                sendBulkStudents(data);
+
+            } catch {
+                showtoast("Invalid JSON file", "error");
+            }
+        };
+
+        reader.readAsText(file);
+    }
+
+    function handleExcelUpload() {
+        const file = document.getElementById("excelFile").files[0];
+
+        if (!file) {
+            showtoast("Select Excel file", "info");
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+            if (!jsonData.length) {
+                showtoast("Empty file", "error");
+                return;
+            }
+
+            renderPreview(jsonData);
+            sendBulkStudents(jsonData);
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    // ================= PREVIEW =================
+    function renderPreview(data) {
+        let html = `
+                <h3 class="font-semibold mb-2">Preview (${data.length})</h3>
+                <table class="w-full bg-white border">
+                    <thead class="bg-gray-200">
+                        <tr>
+                            <th class="p-2">Email</th>
+                            <th class="p-2">Name</th>
+                            <th class="p-2">Class</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+        data.forEach(s => {
+            html += `
+            <tr class="border-t">
+                <td class="p-2">${s.email}</td>
+                <td class="p-2">${s.first_name} ${s.last_name}</td>
+                <td class="p-2">${s.class_name}</td>
+            </tr>
+        `;
+        });
+
+        html += `</tbody></table>`;
+
+        document.getElementById("preview").innerHTML = html;
+    }
+
+    // ================= API CALL =================
+    function sendBulkStudents(data) {
+        apiFetch(`${BASE_URL}/dashboard/teacher/bulk-students/`, {
+            method: "POST",
+            body: JSON.stringify(data)
+        })
+            .then(res => res.json())
+            .then(res => {
+                showToast(
+                    `✅ Created: ${res.created?.length || 0}\n❌ Failed: ${res.failed?.length || 0}`,
+                    "success"
+                );
+            })
+            .catch(() => showToast("Upload failed", "error"));
+    }
+
+    // ================= SAMPLE =================
+    function downloadSample() {
+        const sample = [
+            {
+                "email": "student1@gmail.com",
+                "password": "test123",
+                "first_name": "John",
+                "last_name": "Doe",
+                "role": "student",
+                "student_class": 1
+            }
+        ];
+
+        const blob = new Blob([JSON.stringify(sample, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "students.json";
+        a.click();
+    }
+
+    function downloadExcelSample() {
+        const ws = XLSX.utils.json_to_sheet([
+            {
+                email: "student@gmail.com",
+                password: "test123",
+                first_name: "John",
+                last_name: "Doe",
+                class_name: "Class 10"
+            }
+        ]);
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Students");
+
+        XLSX.writeFile(wb, "students_sample.xlsx");
+    }
+</script>
+
+<!-- ------------  Add Toast Notification  ----------------- -->
+<script>
+    function showToast(message, type = "success") {
+        const container = document.getElementById("toast-container");
+
+        const colors = {
+            success: "bg-green-600",
+            error: "bg-red-600",
+            info: "bg-blue-600"
+        };
+
+        const toast = document.createElement("div");
+        toast.className = `
+            ${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg
+            transform transition-all duration-300 opacity-0 translate-x-10
+        `;
+        toast.innerText = message;
+
+        container.appendChild(toast);
+
+        // Animate in
+        setTimeout(() => {
+            toast.classList.remove("opacity-0", "translate-x-10");
+        }, 100);
+
+        // Remove after 3 sec
+        setTimeout(() => {
+            toast.classList.add("opacity-0", "translate-x-10");
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+</script>
+
+{% endblock %}
